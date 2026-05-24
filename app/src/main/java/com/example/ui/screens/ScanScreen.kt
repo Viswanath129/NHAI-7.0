@@ -10,6 +10,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.ResolutionSelector
+import android.util.Size
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -131,18 +132,10 @@ private fun CameraScanUI(navController: NavController) {
             .fillMaxWidth()
             .padding(24.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Chip(text = "NPU Processing", isPulse = analyzerState.isProcessing, color = MaterialTheme.colorScheme.primary)
-            Chip(text = "Offline", icon = Icons.Default.CloudOff, color = Color.Gray)
-            if (analyzerState.lastProcessingTimeMs > 0) {
-                Chip(text = "${analyzerState.lastProcessingTimeMs}ms", color = Color.Gray)
-            }
-        }
+        StatusRow(
+            isProcessing = analyzerState.isProcessing,
+            lastProcessingTimeMs = analyzerState.lastProcessingTimeMs
+        )
 
         Box(
             modifier = Modifier
@@ -153,7 +146,9 @@ private fun CameraScanUI(navController: NavController) {
         ) {
             AndroidView(
                 factory = { ctx ->
-                    val previewView = PreviewView(ctx)
+                    val previewView = PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+                    }
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                     cameraProviderFuture.addListener({
@@ -166,10 +161,10 @@ private fun CameraScanUI(navController: NavController) {
                         // Stable zero-copy resolution and policy
                         val imageAnalysis = ImageAnalysis.Builder()
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                            // Explicit resolution strategy to encourage lower bounds for high frame-rate edge AI
+                            // Reduced resolution for high frame-rate edge AI (thermal/memory safe)
                             .setResolutionSelector(
                                 ResolutionSelector.Builder()
-                                    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                                    .setResolutionStrategy(ResolutionStrategy(Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
                                     .build()
                             )
                             .build()
@@ -197,24 +192,7 @@ private fun CameraScanUI(navController: NavController) {
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Scanning overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(
-                        if (analyzerState.faces.isNotEmpty()) 4.dp else 0.dp,
-                        if (analyzerState.faces.isNotEmpty()) Color.Green.copy(alpha = 0.5f) else Color.Transparent,
-                        RoundedCornerShape(48.dp)
-                    )
-                    .padding(24.dp)
-            ) {
-                // Bracket Corners
-                val strokeColor = if (analyzerState.faces.isNotEmpty()) Color.Green else MaterialTheme.colorScheme.primary
-                Box(modifier = Modifier.align(Alignment.TopStart).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(topStart = 16.dp)))
-                Box(modifier = Modifier.align(Alignment.TopEnd).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(topEnd = 16.dp)))
-                Box(modifier = Modifier.align(Alignment.BottomStart).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(bottomStart = 16.dp)))
-                Box(modifier = Modifier.align(Alignment.BottomEnd).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(bottomEnd = 16.dp)))
-            }
+            DynamicScanOverlay(hasFaces = analyzerState.faces.isNotEmpty())
 
             // Scanning line animation
             val scanLineAnim = rememberInfiniteTransition()
@@ -237,45 +215,7 @@ private fun CameraScanUI(navController: NavController) {
 
         Spacer(modifier = Modifier.height(24.dp))
         
-        val buttonText = if (analyzerState.faces.isNotEmpty()) "FACE DETECTED" else "ALIGN FACE"
-        val buttonColor = if (analyzerState.faces.isNotEmpty()) Color.Green else MaterialTheme.colorScheme.primary
-        
-        Box(
-            modifier = Modifier
-                .background(buttonColor, RoundedCornerShape(12.dp))
-                .padding(horizontal = 24.dp, vertical = 8.dp)
-        ) {
-            Text(
-                text = buttonText,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Placeholder Progress
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            LinearProgressIndicator(
-                progress = { if (analyzerState.faces.isNotEmpty()) 1f else 0.4f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(CircleShape),
-                color = buttonColor,
-                trackColor = Color.LightGray.copy(alpha = 0.5f)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = if (analyzerState.faces.isNotEmpty()) "LIVENESS VERIFIED" else "ANALYZING BIOMETRICS...",
-                color = buttonColor,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            )
-        }
+        DynamicScanControls(hasFaces = analyzerState.faces.isNotEmpty())
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -323,5 +263,85 @@ fun Chip(text: String, isPulse: Boolean = false, icon: androidx.compose.ui.graph
             Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
         }
         Text(text, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = color, letterSpacing = 1.sp)
+    }
+}
+
+@Composable
+fun StatusRow(isProcessing: Boolean, lastProcessingTimeMs: Long) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 32.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Chip(text = "NPU Processing", isPulse = isProcessing, color = MaterialTheme.colorScheme.primary)
+        Chip(text = "Offline", icon = Icons.Default.CloudOff, color = Color.Gray)
+        if (lastProcessingTimeMs > 0) {
+            Chip(text = "${lastProcessingTimeMs}ms", color = Color.Gray)
+        }
+    }
+}
+
+@Composable
+fun DynamicScanOverlay(hasFaces: Boolean) {
+    val strokeColor = if (hasFaces) Color.Green else MaterialTheme.colorScheme.primary
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .border(
+                if (hasFaces) 4.dp else 0.dp,
+                if (hasFaces) Color.Green.copy(alpha = 0.5f) else Color.Transparent,
+                RoundedCornerShape(48.dp)
+            )
+            .padding(24.dp)
+    ) {
+        Box(modifier = Modifier.align(Alignment.TopStart).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(topStart = 16.dp)))
+        Box(modifier = Modifier.align(Alignment.TopEnd).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(topEnd = 16.dp)))
+        Box(modifier = Modifier.align(Alignment.BottomStart).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(bottomStart = 16.dp)))
+        Box(modifier = Modifier.align(Alignment.BottomEnd).size(32.dp).border(4.dp, strokeColor, RoundedCornerShape(bottomEnd = 16.dp)))
+    }
+}
+
+@Composable
+fun DynamicScanControls(hasFaces: Boolean) {
+    val buttonText = if (hasFaces) "FACE DETECTED" else "ALIGN FACE"
+    val buttonColor = if (hasFaces) Color.Green else MaterialTheme.colorScheme.primary
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .background(buttonColor, RoundedCornerShape(12.dp))
+                .padding(horizontal = 24.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = buttonText,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Placeholder Progress
+        LinearProgressIndicator(
+            progress = { if (hasFaces) 1f else 0.4f },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape),
+            color = buttonColor,
+            trackColor = Color.LightGray.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = if (hasFaces) "LIVENESS VERIFIED" else "ANALYZING BIOMETRICS...",
+            color = buttonColor,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
     }
 }
