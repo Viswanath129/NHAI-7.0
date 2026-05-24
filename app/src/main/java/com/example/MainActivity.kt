@@ -13,6 +13,10 @@ import com.example.ui.screens.LoginScreen
 import com.example.ui.screens.RecordsScreen
 import com.example.ui.screens.ScanScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.EnrollmentDetailsScreen
+import com.example.ui.screens.EnrollmentCameraScreen
+import com.example.ui.screens.EnrollmentMetricsScreen
+import com.example.ui.screens.DebugPanelScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -36,5 +40,9 @@ fun AppNavigation() {
         composable("scan") { ScanScreen(navController) }
         composable("records") { RecordsScreen(navController) }
         composable("settings") { SettingsScreen(navController) }
+        composable("enroll_details") { EnrollmentDetailsScreen(navController) }
+        composable("enroll_camera") { EnrollmentCameraScreen(navController) }
+        composable("enroll_metrics") { EnrollmentMetricsScreen(navController) }
+        composable("debug_panel") { DebugPanelScreen(navController) }
     }
 }
