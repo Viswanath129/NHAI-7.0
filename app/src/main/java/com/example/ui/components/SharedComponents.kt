@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SensorsOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,9 +20,20 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
+
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.fragment.app.FragmentActivity
+
+fun Context.getFragmentActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.getFragmentActivity()
+    else -> null
+}
 
 @Composable
 fun StatusBar(title: String = "NHAI AUTH", showOffline: Boolean = false) {
@@ -36,6 +47,11 @@ fun StatusBar(title: String = "NHAI AUTH", showOffline: Boolean = false) {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.foundation.Image(
+                painter = painterResource(id = android.R.drawable.ic_dialog_info),
+                contentDescription = "NHAI Logo",
+                modifier = Modifier.size(28.dp).padding(end = 8.dp)
+            )
             Text(
                 text = title,
                 fontWeight = FontWeight.Bold,
@@ -84,7 +100,7 @@ fun StatusBar(title: String = "NHAI AUTH", showOffline: Boolean = false) {
                 }
             }
             Icon(
-                imageVector = Icons.Default.SensorsOff,
+                imageVector = Icons.Default.Warning,
                 contentDescription = "Sensors Off",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
@@ -120,7 +136,7 @@ fun AppBottomNavigation(navController: NavController) {
         )
         BottomNavItem(
             label = "Records",
-            icon = Icons.Default.Storage,
+            icon = Icons.Default.List,
             selected = currentRoute == "records",
             onClick = { navController.navigate("records") }
         )

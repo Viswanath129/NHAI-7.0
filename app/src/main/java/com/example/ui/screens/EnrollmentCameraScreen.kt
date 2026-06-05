@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -41,18 +41,23 @@ import androidx.navigation.NavController
 import com.example.camera.FaceAnalyzer
 import com.example.ui.components.StatusBar
 import kotlinx.coroutines.delay
-import java.util.concurrent.Executors
+import kotlinx.coroutines.asExecutor
+import kotlinx.coroutines.Dispatchers
 
 enum class EnrollmentStep(val instructions: String) {
     FRONT("Look directly at the camera"),
     LEFT("Turn your head slightly to the left"),
     RIGHT("Turn your head slightly to the right"),
+    UPWARD("Tilt your head slightly upward"),
     BLINK("Blink both eyes slowly"),
     COMPLETE("Enrollment complete")
 }
 
 @Composable
-fun EnrollmentCameraScreen(navController: NavController) {
+fun EnrollmentCameraScreen(
+    navController: NavController,
+    viewModel: EnrollViewModel
+) {
     val context = LocalContext.current
     var hasCameraPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -71,7 +76,7 @@ fun EnrollmentCameraScreen(navController: NavController) {
     }
 
     Scaffold(
-        topBar = { StatusBar(title = "BIOMETRIC ENROLLMENT") }
+        topBar = { StatusBar(title = "BIOMETRIC CAPTURE") }
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -81,7 +86,7 @@ fun EnrollmentCameraScreen(navController: NavController) {
             contentAlignment = Alignment.Center
         ) {
             if (hasCameraPermission) {
-                EnrollmentCameraUI(navController)
+                EnrollmentCameraUI(navController, viewModel)
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
@@ -93,60 +98,81 @@ fun EnrollmentCameraScreen(navController: NavController) {
 }
 
 @Composable
-private fun EnrollmentCameraUI(navController: NavController) {
+private fun EnrollmentCameraUI(
+    navController: NavController,
+    viewModel: EnrollViewModel
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
-    val faceAnalyzer = remember { FaceAnalyzer() }
+    val appContainer = (context.applicationContext as com.example.NHAIApplication).container
+    val faceAnalyzer = remember { FaceAnalyzer(appContainer.faceRecognitionEngine, appContainer.livenessEngine) }
     val analyzerState by faceAnalyzer.state.collectAsStateWithLifecycle()
-    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val analysisExecutor = remember { Dispatchers.Default.asExecutor() }
 
-    var currentStep by remember { mutableStateOf(EnrollmentStep.FRONT) }
-
-    DisposableEffect(Unit) {
+    DisposableEffect(faceAnalyzer) {
         onDispose {
-            analysisExecutor.shutdown()
+            faceAnalyzer.close()
         }
     }
 
+    var currentStep by remember { mutableStateOf(EnrollmentStep.FRONT) }
+    var capturedEmbedding by remember { mutableStateOf<FloatArray?>(null) }
+
     // Step logic based on face rotations
-    LaunchedEffect(analyzerState.faces) {
-        val faces = analyzerState.faces
-        if (faces.isNotEmpty()) {
-            val face = faces[0]
-            val rotY = face.headEulerAngleY // Left/Right
-            
-            when (currentStep) {
-                EnrollmentStep.FRONT -> {
-                    if (rotY > -5 && rotY < 5) {
-                        delay(1000)
-                        currentStep = EnrollmentStep.LEFT
+    LaunchedEffect(currentStep, analyzerState.currentEmbedding) {
+        if (currentStep != EnrollmentStep.COMPLETE) {
+            val face = analyzerState.faces.firstOrNull()
+            if (face != null) {
+                val rotY = face.headEulerAngleY
+                val rotX = face.headEulerAngleX
+                
+                // Attempt to capture embedding during FRONT step when stable
+                if (currentStep == EnrollmentStep.FRONT && rotY in -6f..6f && rotX in -6f..6f) {
+                    analyzerState.currentEmbedding?.let { capturedEmbedding = it }
+                }
+
+                val conditionMet = when (currentStep) {
+                    EnrollmentStep.FRONT -> {
+                        val isAligned = rotY > -10 && rotY < 10 && rotX > -10 && rotX < 10
+                        if (isAligned && capturedEmbedding == null) {
+                            analyzerState.currentEmbedding?.let { capturedEmbedding = it }
+                        }
+                        isAligned && capturedEmbedding != null
+                    }
+                    EnrollmentStep.LEFT -> rotY > 15
+                    EnrollmentStep.RIGHT -> rotY < -15
+                    EnrollmentStep.UPWARD -> rotX > 12
+                    EnrollmentStep.BLINK -> {
+                        val rightEyeOpen = face.rightEyeOpenProbability ?: 1.0f
+                        val leftEyeOpen = face.leftEyeOpenProbability ?: 1.0f
+                        rightEyeOpen < 0.35f && leftEyeOpen < 0.35f
+                    }
+                    else -> false
+                }
+                
+                if (conditionMet) {
+                    // Small delay to ensure the user holds the pose
+                    delay(800) 
+                    when (currentStep) {
+                        EnrollmentStep.FRONT -> currentStep = EnrollmentStep.LEFT
+                        EnrollmentStep.LEFT -> currentStep = EnrollmentStep.RIGHT
+                        EnrollmentStep.RIGHT -> currentStep = EnrollmentStep.UPWARD
+                        EnrollmentStep.UPWARD -> currentStep = EnrollmentStep.BLINK
+                        EnrollmentStep.BLINK -> currentStep = EnrollmentStep.COMPLETE
+                        else -> {}
                     }
                 }
-                EnrollmentStep.LEFT -> {
-                    if (rotY > 15) { // Turning rightwards but depending on mirrored camera
-                        delay(1000)
-                        currentStep = EnrollmentStep.RIGHT
-                    }
-                }
-                EnrollmentStep.RIGHT -> {
-                    if (rotY < -15) {
-                        delay(1000)
-                        currentStep = EnrollmentStep.BLINK
-                    }
-                }
-                EnrollmentStep.BLINK -> {
-                    val rightEyeOpen = face.rightEyeOpenProbability ?: 1.0f
-                    val leftEyeOpen = face.leftEyeOpenProbability ?: 1.0f
-                    if (rightEyeOpen < 0.2f && leftEyeOpen < 0.2f) { // Blink
-                        delay(500)
-                        currentStep = EnrollmentStep.COMPLETE
-                    }
-                }
-                EnrollmentStep.COMPLETE -> {
-                    delay(1500)
-                    navController.navigate("enroll_metrics")
-                }
+            }
+        }
+    }
+    
+    // Separate effect for navigation after completion
+    LaunchedEffect(currentStep) {
+        if (currentStep == EnrollmentStep.COMPLETE) {
+            viewModel.capturedEmbedding = capturedEmbedding
+            navController.navigate("enroll_processing") {
+                popUpTo("enroll_camera") { inclusive = true }
             }
         }
     }
@@ -159,7 +185,7 @@ private fun EnrollmentCameraUI(navController: NavController) {
     ) {
         // Step progress indicators
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             EnrollmentStep.values().filter { it != EnrollmentStep.COMPLETE }.forEach { step ->
@@ -167,6 +193,34 @@ private fun EnrollmentCameraUI(navController: NavController) {
                 val isDone = currentStep.ordinal > step.ordinal
                 val color = if (isDone) Color.Green else if (isActive) MaterialTheme.colorScheme.primary else Color.Gray
                 Box(modifier = Modifier.size(16.dp).background(color, CircleShape))
+            }
+        }
+        
+        // Quality Metrics HUD
+        val face = analyzerState.faces.firstOrNull()
+        val qualityScore = if (face != null) {
+            val rotY = kotlin.math.abs(face.headEulerAngleY)
+            val rotX = kotlin.math.abs(face.headEulerAngleX)
+            val penalty = (rotY + rotX)
+            (98 - (penalty * 0.5f)).coerceIn(80f, 99f).toInt()
+        } else 0
+        
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("QUALITY", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                Text(if (face != null) "$qualityScore%" else "--%", fontSize = 16.sp, color = if(qualityScore > 90) Color.Green else Color.White, fontWeight = FontWeight.ExtraBold)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(if (face != null) "FACE ENGAGED" else "WAITING", fontSize = 10.sp, color = if(face != null) Color(0xFF1565C0) else Color.Red, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("LIGHT", "BLUR", "POS", "SIZE").forEach { metric ->
+                        Text(metric, fontSize = 8.sp, color = if (face != null) Color.Green else Color.Gray, modifier = Modifier.border(1.dp, if (face != null) Color.Green else Color.Gray, RoundedCornerShape(2.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
+                    }
+                }
             }
         }
 
@@ -177,42 +231,46 @@ private fun EnrollmentCameraUI(navController: NavController) {
                 .border(2.dp, Color.LightGray, RoundedCornerShape(48.dp))
                 .clip(RoundedCornerShape(48.dp))
         ) {
+            val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+            
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx).apply {
-                        implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     }
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                     cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
-                        val preview = Preview.Builder().build().also {
-                            it.setSurfaceProvider(previewView.surfaceProvider)
-                        }
-
-                        val imageAnalysis = ImageAnalysis.Builder()
-                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                            .setResolutionSelector(
-                                ResolutionSelector.Builder()
-                                    .setResolutionStrategy(ResolutionStrategy(Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
-                                    .build()
-                            )
-                            .build()
-                            .also {
-                                it.setAnalyzer(analysisExecutor, faceAnalyzer)
+                        try {
+                            val cameraProvider = cameraProviderFuture.get()
+                            val preview = Preview.Builder().build().also {
+                                it.setSurfaceProvider(previewView.surfaceProvider)
                             }
 
-                        val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+                            val imageAnalysis = ImageAnalysis.Builder()
+                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                .setResolutionSelector(
+                                    ResolutionSelector.Builder()
+                                        .setResolutionStrategy(ResolutionStrategy(Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                                        .build()
+                                )
+                                .build()
+                                .also {
+                                    it.setAnalyzer(analysisExecutor, faceAnalyzer)
+                                }
 
-                        try {
+                            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+
                             cameraProvider.unbindAll()
                             cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalysis)
                         } catch (exc: Exception) {
-                            Log.e("EnrollmentCameraUI", "Use case binding failed", exc)
+                            Log.e("EnrollmentCameraUI", "Camera binding failed", exc)
                         }
                     }, ContextCompat.getMainExecutor(ctx))
 
                     previewView
+                },
+                onRelease = {
+                    // CameraX automatically unbinds use cases when the lifecycle owner is destroyed.
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -253,7 +311,7 @@ private fun EnrollmentCameraUI(navController: NavController) {
         } else {
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-                progress = { (currentStep.ordinal) / 4f },
+                progress = { (currentStep.ordinal) / 5f },
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )

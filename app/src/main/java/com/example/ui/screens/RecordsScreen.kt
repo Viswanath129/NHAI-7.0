@@ -1,152 +1,85 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.ui.components.AppBottomNavigation
-import com.example.ui.components.StatusBar
-import kotlinx.coroutines.delay
+import com.example.data.AppDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordsScreen(navController: NavController) {
-    var syncing by remember { mutableStateOf(false) }
-    var progress = 0.72f
-
-    LaunchedEffect(syncing) {
-        if (syncing) {
-            delay(2000)
-            syncing = false
+    val context = LocalContext.current
+    val db = AppDatabase.getDatabase(context)
+    val employees by db.employeeDao().getAllEmployees().collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredEmployees = if (searchQuery.isBlank()) {
+        employees
+    } else {
+        employees.filter { 
+            it.fullName.contains(searchQuery, ignoreCase = true) || 
+            it.employeeId.contains(searchQuery, ignoreCase = true) ||
+            it.department.contains(searchQuery, ignoreCase = true)
         }
     }
 
     Scaffold(
-        topBar = { StatusBar(showOffline = true) },
-        bottomBar = { AppBottomNavigation(navController) }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            item {
-                Column {
-                    Text("DATA TRANSMISSION", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, letterSpacing = 2.sp)
-                    Text("Sync Center", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-
-            item {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Card(
-                        modifier = Modifier.weight(1f).height(140.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = borderStroke()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("QUEUED RECORDS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("1,248", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
-                                Text("+42 NEW", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Red, modifier = Modifier.padding(bottom = 6.dp))
-                            }
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier.weight(1f).height(140.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = borderStroke()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("SECURITY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
-                            }
-                            Column {
-                                Text("AES-256 AWS", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                Text("Tunnel: secure-node-04", fontSize = 9.sp, color = Color.Gray)
-                            }
-                        }
+        topBar = {
+            TopAppBar(
+                title = { Text("ENROLLED AGENTS") },
+                actions = {
+                    IconButton(onClick = {
+                        scope.launch(Dispatchers.IO) { db.employeeDao().deleteAll() }
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Clear All", tint = MaterialTheme.colorScheme.error)
                     }
                 }
-            }
-
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = borderStroke()
-                ) {
-                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                            Column {
-                                Text("SYNC PROGRESS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                Text("Batch 09/24 Transmitting", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Text("72%", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-                        }
-
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            trackColor = Color.LightGray.copy(alpha = 0.5f)
-                        )
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.Gray)
-                                Text("UPDATING DATA... 1.2MB/S", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                            }
-                            Text("ETA: 1M 14S", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                        }
-                    }
-                }
-            }
-
-            item {
-                Button(
-                    onClick = { syncing = true },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    enabled = !syncing
-                ) {
-                    Icon(if (syncing) Icons.Default.Sync else Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text(if (syncing) "INITIALIZING LINK..." else "FORCE MANUAL SYNC", fontWeight = FontWeight.Bold)
-                }
-            }
-
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("SYNC HISTORY", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 2.sp)
-
-                    HistoryItem("Automatic Upload Success", "14:02 PM • 458 Records • 12.4 MB", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primary)
-                    HistoryItem("Manual Sync Triggered", "10:15 AM • 1,022 Records • 28.1 MB", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primary)
-                    HistoryItem("Connection Interrupted", "08:44 AM • Auth Timeout • Retry 5m", Icons.Default.Warning, MaterialTheme.colorScheme.error)
+            )
+        }
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                placeholder = { Text("Search by name, ID, or dept...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+            
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(filteredEmployees) { employee ->
+                    AgentCard(employee, onDelete = {
+                        scope.launch(Dispatchers.IO) { db.employeeDao().delete(employee.employeeId) }
+                    }, onUpdate = { updatedEmployee ->
+                        scope.launch(Dispatchers.IO) { db.employeeDao().update(updatedEmployee) }
+                    })
                 }
             }
         }
@@ -154,26 +87,77 @@ fun RecordsScreen(navController: NavController) {
 }
 
 @Composable
-fun HistoryItem(title: String, meta: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = borderStroke()
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier.size(40.dp).background(Color.LightGray.copy(alpha = 0.2f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = color)
+fun AgentCard(employee: com.example.data.EmployeeProfile, onDelete: () -> Unit, onUpdate: (com.example.data.EmployeeProfile) -> Unit) {
+    var isEditing by remember { mutableStateOf(false) }
+
+    if (isEditing) {
+        var editName by remember { mutableStateOf(employee.fullName) }
+        var editDept by remember { mutableStateOf(employee.department) }
+        var editRole by remember { mutableStateOf(employee.role) }
+        var editContact by remember { mutableStateOf(employee.contactNumber) }
+
+        Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = editName, onValueChange = { editName = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = editDept, onValueChange = { editDept = it }, label = { Text("Department") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = editRole, onValueChange = { editRole = it }, label = { Text("Role") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = editContact, onValueChange = { editContact = it }, label = { Text("Contact") }, modifier = Modifier.fillMaxWidth())
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { isEditing = false }) { Text("CANCEL") }
+                    Button(onClick = { 
+                        onUpdate(employee.copy(fullName = editName, department = editDept, role = editRole, contactNumber = editContact))
+                        isEditing = false 
+                    }) { Text("SAVE") }
+                }
             }
-            Column {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Text(meta, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+        }
+    } else {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(employee.fullName, style = MaterialTheme.typography.titleLarge)
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.extraSmall
+                    ) {
+                        Text(
+                            text = employee.role,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                Text("ID: ${employee.employeeId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), thickness = 0.5.dp)
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Department", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        Text(employee.department, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Contact", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        Text(employee.contactNumber, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    IconButton(onClick = { isEditing = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit")
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         }
     }
